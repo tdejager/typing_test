@@ -212,10 +212,13 @@ def unify_variable(v, x, subst):
 if __name__ == '__main__':
     s1 = 'f(X,h(X),Y,g(Y))'
     s2 = 'f(g(Z),W,Z,X)'
-    s3 = "f(z)"
-    print(type(parse_term(s3).args[0]))
-    # subst = unify(parse_term(s1), parse_term(s2), {})
+    s3 = "f(A,B,C,D)"
+    # print(type(parse_term(s3).args[0]))
+    # subst = unify(parse_term(s1), parse_term(s3), {})
     # print(subst)
+    print(occurs_check(parse_term("Y"), parse_term("f(X)"), {"X": Var("Y")}))
 
     # print(apply_unifier(parse_term(s1), subst))
-    # print(apply_unifier(parse_term(s2), subst))
+    # print(apply_unifier(parse_term(s3), subst))
+    #
+    # print(parse_term("f(3)"))
