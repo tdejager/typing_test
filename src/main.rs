@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::ops::Deref;
-use core::num::FpCategory::Subnormal;
 
 /// This is the expression that needs to be inferred, so the incoming expression as in the
 /// AST
@@ -61,9 +60,9 @@ impl Env {
 
 #[derive(Clone, Debug)]
 struct Context {
-    next: i32,
+    pub next: i32,
     // next type variable to be generated
-    env: Env, // mapping of variable scopes to types
+    pub env: Env, // mapping of variable scopes to types
 }
 
 impl Context {
@@ -160,20 +159,47 @@ fn unify(t1: &Box<Type>, t2: &Box<Type>) -> Substitution {
     match (t1.deref(), t2.deref()) {
         (Type::TNamed {name}, Type::TNamed {name: name2}) => {
             if name == name2 {
-                return Substitution::new()
+                Substitution::new()
+            } else {
+                panic!(format!("Unification failed, type names do not fit {} != {}", name, name2))
             }
         }
         (Type::TVar {name}, _) => {
-            return var_bind(name, t2);
+            var_bind(name, t2)
         }
         (_, Type::TVar {name}) => {
-            return var_bind(name, t1);
+            var_bind(name, t1)
         }
+        (Type::TFun {from, to}, Type::TFun {from: from2, to: to2}) => {
+            let s1 = unify(from, from2);
+            let s2 = unify(&appl_subs_to_type(&s1, &to), &appl_subs_to_type(&s1, &to2));
+            compose_substitution(&s1, &s2)
+        }
+        (_, _) => panic!(format!("Type mismatch expected: {:?}, but found: {:?}", t1, t2))
+    }
 
+}
+
+/// Combines two subsitutios
+fn compose_substitution(s1: &Substitution, s2: &Substitution) -> Substitution {
+    let mut subs = Substitution::new();
+    for (name, type_) in s2.0.iter() {
+        subs.0.insert(name.clone(), appl_subs_to_type(s1, type_));
     };
+    subs
+}
 
-    Substitution::new()
+/// apply given substitution to each type in the context's environment
+/// Doesn't change the input context, but returns a new one
+fn apply_subs_to_ctx(subs: &Substitution, ctx: &Context) -> Context {
+    let mut new_ctx = Context::new(ctx.env.clone());
+    new_ctx.next = ctx.next;
 
+    for (name, type_) in ctx.env.0.iter() {
+        new_ctx.env.0.insert(name.clone(), appl_subs_to_type(subs, type_));
+    }
+
+    new_ctx
 }
 
 /// For an expression and an environment infer it's type
@@ -201,6 +227,25 @@ fn infer(ctx: &mut Context, e: &Box<Expression>) -> (Box<Type>, Substitution) {
             let inferred_type = Box::new(Type::TFun {from: appl_subs_to_type(&subst, &new_type), to: body_type });
             // Return the result
             (inferred_type, subst)
+        }
+        Expression::ECall { func, arg } => {
+            let (func_type, s1) = infer(ctx, func);
+            let (arg_type, s2) = infer(&mut apply_subs_to_ctx(&s1, ctx), arg);
+
+            let new_var = new_type_var(ctx);
+            let s3 = compose_substitution(&s1, &s2);
+
+            let func_pre_unify = Box::new(Type::TFun { from: arg_type.clone(), to: new_var });
+            let s4 = unify(&func_pre_unify, &func_type);
+
+            let func_unified = appl_subs_to_type(&s4, &func_type);
+            let s5 = compose_substitution(&s4, &s3);
+
+            if let Type::TFun { from, to } = func_unified.deref() {
+                let s6 = unify(&appl_subs_to_type(&s5, from), &arg_type);
+                let result_subs = compose_substitution(&s5, &s6);
+                (appl_subs_to_type(&result_subs, to), result_subs)
+            } else { panic!("Only expects TFun in call type") }
         }
         _ => unimplemented!(),
     }
